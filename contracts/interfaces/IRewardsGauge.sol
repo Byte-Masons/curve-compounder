@@ -12,4 +12,6 @@ interface IRewardsGauge {
     function deposit(uint256 _value) external;
 
     function withdraw(uint256 _value) external;
+
+    function withdraw(uint256 _value, bool _claim_rewards) external;
 }

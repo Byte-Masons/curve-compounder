@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 
 import "./abstract/ReaperBaseStrategyv1_1.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/ICurveSwap.sol";
 import "./interfaces/ICurveSwap2.sol";
 import "./interfaces/ICurveSwap3.sol";
 import "./interfaces/ICurveSwap4.sol";
@@ -77,6 +78,12 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         poolSize = _poolSize;
         depositIndex = _depositIndex;
         useUnderlying = _useUnderlying;
+
+        depositToken = ICurveSwap(swapPool).coins(depositIndex);
+
+        crvToWftmPath = [CRV, WFTM];
+        geistToWftmPath = [GEIST, WFTM];
+        wftmToDepositPath = [WFTM, depositToken];
     }
 
     /**
@@ -84,48 +91,43 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      It gets called whenever someone deposits in the strategy's vault contract.
      */
     function _deposit() internal override {
-        // uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
-        // if (wantBalance != 0) {
-        //     IMasterChef(TSHARE_REWARDS_POOL).deposit(poolId, wantBalance);
-        // }
+        uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
+        if (wantBalance != 0) {
+            IRewardsGauge(rewardsGauge).deposit(wantBalance);
+        }
     }
 
     /**
      * @dev Withdraws funds and sends them back to the vault.
      */
     function _withdraw(uint256 _amount) internal override {
-        // uint256 wantBal = IERC20Upgradeable(want).balanceOf(address(this));
-        // if (wantBal < _amount) {
-        //     IMasterChef(TSHARE_REWARDS_POOL).withdraw(poolId, _amount - wantBal);
-        // }
+        uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
+        if (wantBalance < _amount) {
+            IRewardsGauge(rewardsGauge).withdraw(_amount - wantBalance);
+            wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
+        }
 
-        // IERC20Upgradeable(want).safeTransfer(vault, _amount);
+        IERC20Upgradeable(want).safeTransfer(vault, _amount);
     }
 
     /**
      * @dev Core function of the strat, in charge of collecting and re-investing rewards.
-     *      1. Claims {TSHARE} from the {TSHARE_REWARDS_POOL}.
-     *      2. Swaps {TSHARE} to {WFTM} using {SPOOKY_ROUTER}.
-     *      3. Claims fees for the harvest caller and treasury.
-     *      4. Swaps the {WFTM} token for {lpToken0} using {SPOOKY_ROUTER}.
-     *      5. Swaps half of {lpToken0} to {lpToken1} using {TOMB_ROUTER}.
-     *      6. Creates new LP tokens and deposits.
+     *      1. Claims rewards
+     *      2. Swaps reward tokens to wftm
+     *      3. Claims fees for the harvest caller and treasury
+     *      4. Creates the want LP tokens
+     *      5. Deposits new LP tokens
      */
     function _harvestCore() internal override {
-        // IMasterChef(TSHARE_REWARDS_POOL).deposit(poolId, 0); // deposit 0 to claim rewards
+        _claimRewards();
+        _swapRewards();
+        _chargeFees();
+        _addLiquidity();
+        _deposit();
+    }
 
-        // uint256 tshareBal = IERC20Upgradeable(TSHARE).balanceOf(address(this));
-        // _swap(tshareBal, tshareToWftmPath, SPOOKY_ROUTER);
-
-        // _chargeFees();
-
-        // uint256 wftmBal = IERC20Upgradeable(WFTM).balanceOf(address(this));
-        // _swap(wftmBal, wftmToTombPath, SPOOKY_ROUTER);
-        // uint256 tombHalf = IERC20Upgradeable(lpToken0).balanceOf(address(this)) / 2;
-        // _swap(tombHalf, tombToMaiPath, TOMB_ROUTER);
-
-        // _addLiquidity();
-        // deposit();
+    function _claimRewards() internal {
+        IRewardsGauge(rewardsGauge).claim_rewards(address(this));
     }
 
     /**
@@ -133,20 +135,26 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      */
     function _swap(
         uint256 _amount,
-        address[] memory _path,
-        address _router
+        address[] memory _path
     ) internal {
         if (_path.length < 2 || _amount == 0) {
             return;
         }
 
-        IUniswapV2Router02(_router).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        IUniswapV2Router02(SPOOKY_ROUTER).swapExactTokensForTokensSupportingFeeOnTransferTokens(
             _amount,
             0,
             _path,
             address(this),
             block.timestamp
         );
+    }
+
+    function _swapRewards() internal {
+        uint256 crvBal = IERC20Upgradeable(CRV).balanceOf(address(this));
+        uint256 geistBal = IERC20Upgradeable(GEIST).balanceOf(address(this));
+        _swap(crvBal, crvToWftmPath);
+        _swap(geistBal, geistToWftmPath);
     }
 
     /**
@@ -172,21 +180,32 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * @dev Core harvest function. Adds more liquidity using {lpToken0} and {lpToken1}.
      */
     function _addLiquidity() internal {
-        // uint256 lp0Bal = IERC20Upgradeable(lpToken0).balanceOf(address(this));
-        // uint256 lp1Bal = IERC20Upgradeable(lpToken1).balanceOf(address(this));
+        uint256 wftmBal = IERC20Upgradeable(WFTM).balanceOf(address(this));
+        _swap(wftmBal, wftmToDepositPath);
 
-        // if (lp0Bal != 0 && lp1Bal != 0) {
-        //     IUniswapV2Router02(TOMB_ROUTER).addLiquidity(
-        //         lpToken0,
-        //         lpToken1,
-        //         lp0Bal,
-        //         lp1Bal,
-        //         0,
-        //         0,
-        //         address(this),
-        //         block.timestamp
-        //     );
-        // }
+        uint256 depositBalance = IERC20Upgradeable(depositToken).balanceOf(address(this));
+
+        if (poolSize == 2) {
+            uint256[2] memory amounts;
+            amounts[depositIndex] = depositBalance;
+            if (useUnderlying)
+                ICurveSwap2(swapPool).add_liquidity(amounts, 0, true);
+            else ICurveSwap2(swapPool).add_liquidity(amounts, 0);
+        } else if (poolSize == 3) {
+            uint256[3] memory amounts;
+            amounts[depositIndex] = depositBalance;
+            if (useUnderlying)
+                ICurveSwap3(swapPool).add_liquidity(amounts, 0, true);
+            else ICurveSwap3(swapPool).add_liquidity(amounts, 0);
+        } else if (poolSize == 4) {
+            uint256[4] memory amounts;
+            amounts[depositIndex] = depositBalance;
+            ICurveSwap4(swapPool).add_liquidity(amounts, 0);
+        } else if (poolSize == 5) {
+            uint256[5] memory amounts;
+            amounts[depositIndex] = depositBalance;
+            ICurveSwap5(swapPool).add_liquidity(amounts, 0);
+        }
     }
 
     /**
@@ -194,8 +213,17 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      It takes into account both the funds in hand, plus the funds in the MasterChef.
      */
     function balanceOf() public view override returns (uint256) {
-        // (uint256 amount, ) = IMasterChef(TSHARE_REWARDS_POOL).userInfo(poolId, address(this));
-        // return amount + IERC20Upgradeable(want).balanceOf(address(this));
+        return balanceOfWant() + balanceOfPool();
+    }
+
+    // it calculates how much 'want' this contract holds.
+    function balanceOfWant() public view returns (uint256) {
+        return IERC20Upgradeable(want).balanceOf(address(this));
+    }
+
+    // it calculates how much 'want' the strategy has working in the farm.
+    function balanceOfPool() public view returns (uint256) {
+        return IRewardsGauge(rewardsGauge).balanceOf(address(this));
     }
 
     /**
@@ -203,18 +231,25 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      Profit is denominated in WFTM, and takes fees into account.
      */
     function estimateHarvest() external view override returns (uint256 profit, uint256 callFeeToUser) {
-        // uint256 pendingReward = IMasterChef(TSHARE_REWARDS_POOL).pendingShare(poolId, address(this));
-        // uint256 totalRewards = pendingReward + IERC20Upgradeable(TSHARE).balanceOf(address(this));
+        uint256 pendingCRVReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), CRV);
+        uint256 totalCRVRewards = pendingCRVReward + IERC20Upgradeable(CRV).balanceOf(address(this));
+        uint256 pendingGeistReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), GEIST);
+        uint256 totalGeistRewards = pendingGeistReward + IERC20Upgradeable(GEIST).balanceOf(address(this));
+        uint256 pendingWFTMReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), WFTM);
+        uint256 totalWFTMRewards = pendingWFTMReward + IERC20Upgradeable(WFTM).balanceOf(address(this));
 
-        // if (totalRewards != 0) {
-        //     profit += IUniswapV2Router02(SPOOKY_ROUTER).getAmountsOut(totalRewards, tshareToWftmPath)[1];
-        // }
+        if (totalCRVRewards != 0) {
+            profit += IUniswapV2Router02(SPOOKY_ROUTER).getAmountsOut(totalCRVRewards, crvToWftmPath)[1];
+        }
+        if (totalGeistRewards != 0) {
+            profit += IUniswapV2Router02(SPOOKY_ROUTER).getAmountsOut(totalGeistRewards, geistToWftmPath)[1];
+        }
 
-        // profit += IERC20Upgradeable(WFTM).balanceOf(address(this));
+        profit += totalWFTMRewards;
 
-        // uint256 wftmFee = (profit * totalFee) / PERCENT_DIVISOR;
-        // callFeeToUser = (wftmFee * callFee) / PERCENT_DIVISOR;
-        // profit -= wftmFee;
+        uint256 wftmFee = (profit * totalFee) / PERCENT_DIVISOR;
+        callFeeToUser = (wftmFee * callFee) / PERCENT_DIVISOR;
+        profit -= wftmFee;
     }
 
     /**
@@ -225,30 +260,18 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * Note: this is not an emergency withdraw function. For that, see panic().
      */
     function _retireStrat() internal override {
-        // IMasterChef(TSHARE_REWARDS_POOL).deposit(poolId, 0); // deposit 0 to claim rewards
-
-        // uint256 tshareBal = IERC20Upgradeable(TSHARE).balanceOf(address(this));
-        // _swap(tshareBal, tshareToWftmPath, SPOOKY_ROUTER);
-
-        // uint256 wftmBal = IERC20Upgradeable(WFTM).balanceOf(address(this));
-        // _swap(wftmBal, wftmToTombPath, SPOOKY_ROUTER);
-        // uint256 tombHalf = IERC20Upgradeable(lpToken0).balanceOf(address(this)) / 2;
-        // _swap(tombHalf, tombToMaiPath, TOMB_ROUTER);
-
-        // _addLiquidity();
-
-        // (uint256 poolBal, ) = IMasterChef(TSHARE_REWARDS_POOL).userInfo(poolId, address(this));
-        // IMasterChef(TSHARE_REWARDS_POOL).withdraw(poolId, poolBal);
-
-        // uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
-        // IERC20Upgradeable(want).safeTransfer(vault, wantBalance);
+        _harvestCore();
+        IRewardsGauge(rewardsGauge).withdraw(balanceOfPool());
+        uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
+        IERC20Upgradeable(want).transfer(vault, wantBalance);
     }
 
     /**
      * Withdraws all funds leaving rewards behind.
      */
     function _reclaimWant() internal override {
-        // IMasterChef(TSHARE_REWARDS_POOL).emergencyWithdraw(poolId);
+        bool claimRewards = false;
+        IRewardsGauge(rewardsGauge).withdraw(balanceOfPool(), claimRewards);
     }
 
     /**
@@ -260,26 +283,46 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      - add liquidity using {lpToken0} and {lpToken1} in {TOMB_ROUTER}
      */
     function _giveAllowances() internal override {
-        // IERC20Upgradeable(want).safeApprove(TSHARE_REWARDS_POOL, 0);
-        // IERC20Upgradeable(want).safeApprove(TSHARE_REWARDS_POOL, type(uint256).max);
-        // IERC20Upgradeable(TSHARE).safeApprove(SPOOKY_ROUTER, 0);
-        // IERC20Upgradeable(TSHARE).safeApprove(SPOOKY_ROUTER, type(uint256).max);
-        // IERC20Upgradeable(WFTM).safeApprove(SPOOKY_ROUTER, 0);
-        // IERC20Upgradeable(WFTM).safeApprove(SPOOKY_ROUTER, type(uint256).max);
-        // IERC20Upgradeable(lpToken0).safeApprove(TOMB_ROUTER, 0);
-        // IERC20Upgradeable(lpToken0).safeApprove(TOMB_ROUTER, type(uint256).max);
-        // IERC20Upgradeable(lpToken1).safeApprove(TOMB_ROUTER, 0);
-        // IERC20Upgradeable(lpToken1).safeApprove(TOMB_ROUTER, type(uint256).max);
+        // want -> rewardsGauge
+        uint256 wantAllowance = type(uint256).max - IERC20Upgradeable(want).allowance(address(this), rewardsGauge);
+        IERC20Upgradeable(want).safeIncreaseAllowance(rewardsGauge, wantAllowance);
+        // CRV -> SPOOKY_ROUTER
+        uint256 crvAllowance = type(uint256).max - IERC20Upgradeable(CRV).allowance(address(this), SPOOKY_ROUTER);
+        IERC20Upgradeable(CRV).safeIncreaseAllowance(SPOOKY_ROUTER, crvAllowance);
+        // GEIST -> SPOOKY_ROUTER
+        uint256 geistAllowance = type(uint256).max - IERC20Upgradeable(GEIST).allowance(address(this), SPOOKY_ROUTER);
+        IERC20Upgradeable(GEIST).safeIncreaseAllowance(SPOOKY_ROUTER, geistAllowance);
+        // WFTM -> SPOOKY_ROUTER
+        uint256 wftmAllowance = type(uint256).max - IERC20Upgradeable(WFTM).allowance(address(this), SPOOKY_ROUTER);
+        IERC20Upgradeable(WFTM).safeIncreaseAllowance(SPOOKY_ROUTER, wftmAllowance);
+        // depositToken -> swapPool
+        uint256 depositTokenAllowance = type(uint256).max - IERC20Upgradeable(depositToken).allowance(address(this), swapPool);
+        IERC20Upgradeable(depositToken).safeIncreaseAllowance(swapPool, depositTokenAllowance);
     }
 
     /**
      * @dev Removes all the allowances that were given above.
      */
     function _removeAllowances() internal override {
-        // IERC20Upgradeable(want).safeApprove(TSHARE_REWARDS_POOL, 0);
-        // IERC20Upgradeable(TSHARE).safeApprove(SPOOKY_ROUTER, 0);
-        // IERC20Upgradeable(WFTM).safeApprove(SPOOKY_ROUTER, 0);
-        // IERC20Upgradeable(lpToken0).safeApprove(TOMB_ROUTER, 0);
-        // IERC20Upgradeable(lpToken1).safeApprove(TOMB_ROUTER, 0);
+        IERC20Upgradeable(want).safeDecreaseAllowance(
+            rewardsGauge,
+            IERC20Upgradeable(want).allowance(address(this), rewardsGauge)
+        );
+        IERC20Upgradeable(CRV).safeDecreaseAllowance(
+            SPOOKY_ROUTER,
+            IERC20Upgradeable(CRV).allowance(address(this), SPOOKY_ROUTER)
+        );
+        IERC20Upgradeable(GEIST).safeDecreaseAllowance(
+            SPOOKY_ROUTER,
+            IERC20Upgradeable(GEIST).allowance(address(this), SPOOKY_ROUTER)
+        );
+        IERC20Upgradeable(WFTM).safeDecreaseAllowance(
+            SPOOKY_ROUTER,
+            IERC20Upgradeable(WFTM).allowance(address(this), SPOOKY_ROUTER)
+        );
+        IERC20Upgradeable(depositToken).safeDecreaseAllowance(
+            swapPool,
+            IERC20Upgradeable(depositToken).allowance(address(this), swapPool)
+        );
     }
 }
