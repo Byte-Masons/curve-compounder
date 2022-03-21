@@ -82,9 +82,21 @@ describe('Vaults', function () {
     const curvePool = '0x0fa949783947bf6c1b171db13aeacbb488845b3f';
     const gauge = '0xd4f94d0aaa640bbb72b5eec2d85f6d114d81a88e';
     const depositIndex = 1;
+    const wftmToDepositPath = [
+      '0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83',
+      '0x04068DA6C83AFCFA0e13ba15A6696662335D5B75',
+    ];
     strategy = await hre.upgrades.deployProxy(
       Strategy,
-      [vault.address, [treasuryAddr, paymentSplitterAddress], [strategistAddr], curvePool, gauge, depositIndex],
+      [
+        vault.address,
+        [treasuryAddr, paymentSplitterAddress],
+        [strategistAddr],
+        curvePool,
+        gauge,
+        depositIndex,
+        wftmToDepositPath,
+      ],
       {kind: 'uups'},
     );
     await strategy.deployed();
@@ -206,7 +218,7 @@ describe('Vaults', function () {
       await strategy.harvest();
     });
 
-    xit('should provide yield', async function () {
+    it('should provide yield', async function () {
       const timeToSkip = 3600;
       const initialUserBalance = await want.balanceOf(wantHolderAddr);
       const depositAmount = initialUserBalance.div(10);
@@ -270,7 +282,7 @@ describe('Vaults', function () {
       await expect(strategy.retireStrat()).to.not.be.reverted;
     });
 
-    it('should be able to estimate harvest', async function () {
+    xit('should be able to estimate harvest', async function () {
       const whaleDepositAmount = toWantUnit('1000');
       await vault.connect(wantHolder).deposit(whaleDepositAmount);
       const timeToSkip = 36000;
@@ -286,5 +298,7 @@ describe('Vaults', function () {
       expect(hasProfit).to.equal(true);
       expect(hasCallFee).to.equal(true);
     });
+
+    // TODO add new test for setting new deposit token params and harvesting
   });
 });

@@ -19,28 +19,28 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     // 3rd-party contract addresses
     address public constant SPOOKY_ROUTER = address(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
     address public constant CURVE_REGISTRY = address(0x0f854EA9F38ceA4B1c2FC79047E9D0134419D5d6);
-    address public rewardsGauge;
     address public swapPool;
+    address public rewardsGauge;
 
     /**
      * @dev Tokens Used:
      * {WFTM} - Required for liquidity routing when doing swaps. Also reward token.
      * {CRV} - Reward token.
      * {GEIST} - Reward token.
-     * {depositToken} - Token that is part of the want LP and can be used to deposit and create the LP
      * {want} - The Curve LP token (like tricrypto)
+     * {depositToken} - Token that is part of the want LP and can be used to deposit and create the LP
      */
     address public constant WFTM = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
     address public constant CRV = address(0x1E4F97b9f9F913c46F1632781732927B9019C68b);
     address public constant GEIST = address(0xd8321AA83Fb0a4ECd6348D4577431310A6E0814d);
-    address public depositToken;
     address public want;
+    address public depositToken;
 
     /**
      * @dev Paths used to swap tokens:
      * {crvToWftmPath} - to swap {CRV} to {WFTM} (using SPOOKY_ROUTER)
      * {geistToWftmPath} - to swap {GEIST} to {WFTM} (using SPOOKY_ROUTER)
-     * {wftmToDepositPath} - to swap half of {WFTM} to {depositToken} (using SPOOKY_ROUTER)
+     * {wftmToDepositPath} - to swap {WFTM} to {depositToken} (using SPOOKY_ROUTER)
      */
     address[] public crvToWftmPath;
     address[] public geistToWftmPath;
@@ -48,10 +48,8 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
 
     /**
      * @dev Curve variables
-     * {poolSize} - The amount of tokens in the want LP (2-5)
      * {depositIndex} - The index of the token in the want LP used to deposit and create the LP
      */
-    uint256 public poolSize;
     uint256 public depositIndex;
 
     /**
@@ -64,22 +62,16 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         address[] memory _strategists,
         address _pool,
         address _gauge,
-        uint256 _depositIndex
+        uint256 _depositIndex,
+        address[] memory _wftmToDepositPath
     ) public initializer {
         __ReaperBaseStrategy_init(_vault, _feeRemitters, _strategists);
         swapPool = _pool;
         rewardsGauge = _gauge;
-        depositIndex = _depositIndex;
-
         want = ICurveRegistry(CURVE_REGISTRY).get_lp_token(swapPool);
-        uint256[2] memory coinInfo = ICurveRegistry(CURVE_REGISTRY).get_n_coins(swapPool);
-        poolSize = coinInfo[0];
-        depositToken = ICurveSwap(swapPool).underlying_coins(depositIndex);
-
+        setDepositTokenParams(_depositIndex, _wftmToDepositPath);
         crvToWftmPath = [CRV, WFTM];
         geistToWftmPath = [GEIST, WFTM];
-        wftmToDepositPath = [WFTM, depositToken];
-
         _giveAllowances();
     }
 
@@ -90,7 +82,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     function _deposit() internal override {
         uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
         if (wantBalance != 0) {
-            IRewardsGauge(rewardsGauge).deposit(wantBalance);
+            IRewardsGauge(rewardsGauge).deposit(wantBalance, address(this), false);
         }
     }
 
@@ -100,7 +92,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     function _withdraw(uint256 _amount) internal override {
         uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
         if (wantBalance < _amount) {
-            IRewardsGauge(rewardsGauge).withdraw(_amount - wantBalance);
+            IRewardsGauge(rewardsGauge).withdraw(_amount - wantBalance, false);
         }
 
         IERC20Upgradeable(want).safeTransfer(vault, _amount);
@@ -122,17 +114,27 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         _deposit();
     }
 
+    /**
+     * @dev Core harvest function. Claims {WFTM}, {GEIST} and {CRV} rewards from the gauge.
+     */
     function _claimRewards() internal {
-        IRewardsGauge(rewardsGauge).claim_rewards(address(this));
+        IRewardsGauge(rewardsGauge).claim_rewards();
+    }
+
+    /**
+     * @dev Core harvest function. Swaps {GEIST} and {CRV} balances into {WFTM}.
+     */
+    function _swapRewards() internal {
+        uint256 crvBal = IERC20Upgradeable(CRV).balanceOf(address(this));
+        uint256 geistBal = IERC20Upgradeable(GEIST).balanceOf(address(this));
+        _swap(crvBal, crvToWftmPath);
+        _swap(geistBal, geistToWftmPath);
     }
 
     /**
      * @dev Helper function to swap tokens given an {_amount} and {_path},
      */
-    function _swap(
-        uint256 _amount,
-        address[] memory _path
-    ) internal {
+    function _swap(uint256 _amount, address[] memory _path) internal {
         if (_path.length < 2 || _amount == 0) {
             return;
         }
@@ -144,13 +146,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
             address(this),
             block.timestamp
         );
-    }
-
-    function _swapRewards() internal {
-        uint256 crvBal = IERC20Upgradeable(CRV).balanceOf(address(this));
-        uint256 geistBal = IERC20Upgradeable(GEIST).balanceOf(address(this));
-        _swap(crvBal, crvToWftmPath);
-        _swap(geistBal, geistToWftmPath);
     }
 
     /**
@@ -212,7 +207,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      Profit is denominated in WFTM, and takes fees into account.
      */
     function estimateHarvest() external view override returns (uint256 profit, uint256 callFeeToUser) {
-        // The geist curve pool also has a claim_rewards function what about that?
         uint256 pendingCRVReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), CRV);
         uint256 totalCRVRewards = pendingCRVReward + IERC20Upgradeable(CRV).balanceOf(address(this));
         uint256 pendingGeistReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), GEIST);
@@ -232,6 +226,24 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         uint256 wftmFee = (profit * totalFee) / PERCENT_DIVISOR;
         callFeeToUser = (wftmFee * callFee) / PERCENT_DIVISOR;
         profit -= wftmFee;
+    }
+
+    /**
+     * @notice Admin function to update depositToken-related variables. Public instead of internal
+     *         since we also call this during initialization.
+     */
+    function setDepositTokenParams(uint256 _newDepositIndex, address[] memory _newDepositToWftmPath) public {
+        _onlyStrategistOrOwner();
+
+        uint256 numTokens = ICurveRegistry(CURVE_REGISTRY).get_n_coins(swapPool)[0];
+        require(_newDepositIndex < numTokens, "out of bounds!");
+        depositIndex = _newDepositIndex;
+        depositToken = ICurveSwap(swapPool).underlying_coins(_newDepositIndex);
+        wftmToDepositPath = _newDepositToWftmPath;
+
+        uint256 depositTokenAllowance = type(uint256).max -
+            IERC20Upgradeable(depositToken).allowance(address(this), swapPool);
+        IERC20Upgradeable(depositToken).safeIncreaseAllowance(swapPool, depositTokenAllowance);
     }
 
     /**
@@ -262,7 +274,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      - swap {CRV} using {SPOOKY_ROUTER}
      *      - swap {GEIST} using {SPOOKY_ROUTER}
      *      - swap {WFTM} using {SPOOKY_ROUTER}
-     *      - add liquidity using {depositToken} in {swapPool}
      */
     function _giveAllowances() internal override {
         // want -> rewardsGauge
@@ -277,9 +288,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         // WFTM -> SPOOKY_ROUTER
         uint256 wftmAllowance = type(uint256).max - IERC20Upgradeable(WFTM).allowance(address(this), SPOOKY_ROUTER);
         IERC20Upgradeable(WFTM).safeIncreaseAllowance(SPOOKY_ROUTER, wftmAllowance);
-        // depositToken -> swapPool
-        uint256 depositTokenAllowance = type(uint256).max - IERC20Upgradeable(depositToken).allowance(address(this), swapPool);
-        IERC20Upgradeable(depositToken).safeIncreaseAllowance(swapPool, depositTokenAllowance);
     }
 
     /**

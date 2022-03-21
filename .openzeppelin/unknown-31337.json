@@ -3,7 +3,7 @@
   "proxies": [
     {
       "address": "0x922D6956C99E12DFeB3224DEA977D0939758A1Fe",
-      "txHash": "0x21533eafc5cd24f40c1ad9af968fb6c83bedfefa1451eab276326aaba723773a",
+      "txHash": "0xc7c2372d705e4775bd6739d3fd1f978cc389e0cac5d97c9b7bb605513255ab9e",
       "kind": "uups"
     }
   ],
@@ -538,9 +538,9 @@
         }
       }
     },
-    "dffab58edc987e13799a4b3415028b48e89d6fec98c927e658e92aeb04c8d38c": {
+    "711fe83c5be99688cd6a65eda18f3634b82f4864fd7dd0ef7abe465845940e11": {
       "address": "0x162A433068F51e18b7d13932F27e66a3f99E6890",
-      "txHash": "0x04b9db20b12b4bba86f39e70226c36338030843ea79e582f093608d39e1588fb",
+      "txHash": "0xcc9f6fb9568a5d8054bb45e92cb0a737462adee01d557f697ad22b73aa4859f8",
       "layout": {
         "storage": [
           {
@@ -643,7 +643,7 @@
             "label": "harvestLog",
             "offset": 0,
             "slot": "351",
-            "type": "t_array(t_struct(Harvest)6154_storage)dyn_storage",
+            "type": "t_array(t_struct(Harvest)6206_storage)dyn_storage",
             "contract": "ReaperBaseStrategyv1_1",
             "src": "contracts\\abstract\\ReaperBaseStrategyv1_1.sol:27"
           },
@@ -736,36 +736,36 @@
             "src": "contracts\\abstract\\ReaperBaseStrategyv1_1.sol:77"
           },
           {
-            "label": "rewardsGauge",
+            "label": "swapPool",
             "offset": 0,
             "slot": "363",
             "type": "t_address",
             "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:22"
+            "src": "contracts\\ReaperStrategyCurve.sol:24"
           },
           {
-            "label": "swapPool",
+            "label": "rewardsGauge",
             "offset": 0,
             "slot": "364",
             "type": "t_address",
             "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:23"
-          },
-          {
-            "label": "depositToken",
-            "offset": 0,
-            "slot": "365",
-            "type": "t_address",
-            "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:36"
+            "src": "contracts\\ReaperStrategyCurve.sol:25"
           },
           {
             "label": "want",
             "offset": 0,
+            "slot": "365",
+            "type": "t_address",
+            "contract": "ReaperStrategyCurve",
+            "src": "contracts\\ReaperStrategyCurve.sol:38"
+          },
+          {
+            "label": "depositToken",
+            "offset": 0,
             "slot": "366",
             "type": "t_address",
             "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:37"
+            "src": "contracts\\ReaperStrategyCurve.sol:39"
           },
           {
             "label": "crvToWftmPath",
@@ -773,7 +773,7 @@
             "slot": "367",
             "type": "t_array(t_address)dyn_storage",
             "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:45"
+            "src": "contracts\\ReaperStrategyCurve.sol:47"
           },
           {
             "label": "geistToWftmPath",
@@ -781,7 +781,7 @@
             "slot": "368",
             "type": "t_array(t_address)dyn_storage",
             "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:46"
+            "src": "contracts\\ReaperStrategyCurve.sol:48"
           },
           {
             "label": "wftmToDepositPath",
@@ -789,20 +789,12 @@
             "slot": "369",
             "type": "t_array(t_address)dyn_storage",
             "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:47"
-          },
-          {
-            "label": "poolSize",
-            "offset": 0,
-            "slot": "370",
-            "type": "t_uint256",
-            "contract": "ReaperStrategyCurve",
-            "src": "contracts\\ReaperStrategyCurve.sol:54"
+            "src": "contracts\\ReaperStrategyCurve.sol:49"
           },
           {
             "label": "depositIndex",
             "offset": 0,
-            "slot": "371",
+            "slot": "370",
             "type": "t_uint256",
             "contract": "ReaperStrategyCurve",
             "src": "contracts\\ReaperStrategyCurve.sol:55"
@@ -821,7 +813,7 @@
             "label": "bytes32[]",
             "numberOfBytes": "32"
           },
-          "t_array(t_struct(Harvest)6154_storage)dyn_storage": {
+          "t_array(t_struct(Harvest)6206_storage)dyn_storage": {
             "label": "struct ReaperBaseStrategyv1_1.Harvest[]",
             "numberOfBytes": "32"
           },
@@ -869,7 +861,7 @@
             ],
             "numberOfBytes": "64"
           },
-          "t_struct(Harvest)6154_storage": {
+          "t_struct(Harvest)6206_storage": {
             "label": "struct ReaperBaseStrategyv1_1.Harvest",
             "members": [
               {
