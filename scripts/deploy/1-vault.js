@@ -1,13 +1,14 @@
 async function main() {
   const Vault = await ethers.getContractFactory('ReaperVaultv1_4');
 
-  const wantAddress = '0x45f4682B560d4e3B8FF1F1b3A38FDBe775C7177b';
-  const tokenName = 'TOMB-MAI Tomb Crypt';
-  const tokenSymbol = 'rf-TOMB-MAI';
+  const wantAddress = '0xd02a30d33153877bc20e5721ee53dedee0422b2f';
+  const tokenName = 'g3CRV Curve Crypt';
+  const tokenSymbol = 'rf-g3CRV';
   const depositFee = 0;
-  const tvlCap = ethers.constants.MaxUint256;
+  const tvlCap = ethers.utils.parseEther('2000');
+  const options = {gasPrice: 900000000000, gasLimit: 9000000};
 
-  const vault = await Vault.deploy(wantAddress, tokenName, tokenSymbol, depositFee, tvlCap);
+  const vault = await Vault.deploy(wantAddress, tokenName, tokenSymbol, depositFee, tvlCap, options);
 
   await vault.deployed();
   console.log('Vault deployed to:', vault.address);
