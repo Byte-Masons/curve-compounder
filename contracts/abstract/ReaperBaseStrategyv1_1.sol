@@ -118,8 +118,6 @@ abstract contract ReaperBaseStrategyv1_1 is
         }
 
         harvestLog.push(Harvest({timestamp: block.timestamp, vaultSharePrice: IVault(_vault).getPricePerFullShare()}));
-
-        _giveAllowances();
     }
 
     /**

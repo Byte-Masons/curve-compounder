@@ -74,10 +74,13 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         want = ICurveRegistry(CURVE_REGISTRY).get_lp_token(swapPool);
         uint256[2] memory coinInfo = ICurveRegistry(CURVE_REGISTRY).get_n_coins(swapPool);
         poolSize = coinInfo[0];
-        depositToken = ICurveSwap(swapPool).coins(depositIndex);
+        depositToken = ICurveSwap(swapPool).underlying_coins(depositIndex);
+
         crvToWftmPath = [CRV, WFTM];
         geistToWftmPath = [GEIST, WFTM];
         wftmToDepositPath = [WFTM, depositToken];
+
+        _giveAllowances();
     }
 
     /**
@@ -178,9 +181,11 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
 
         uint256 depositBalance = IERC20Upgradeable(depositToken).balanceOf(address(this));
 
-        uint256[3] memory amounts;
-        amounts[depositIndex] = depositBalance;
-        ICurveSwap3(swapPool).add_liquidity(amounts, 0);
+        if (depositBalance != 0) {
+            uint256[3] memory amounts;
+            amounts[depositIndex] = depositBalance;
+            ICurveSwap3(swapPool).add_liquidity(amounts, 0, true);
+        }
     }
 
     /**
