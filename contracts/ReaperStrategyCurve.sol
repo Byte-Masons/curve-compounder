@@ -11,9 +11,9 @@ import "./interfaces/ICurveSwap4.sol";
 import "./interfaces/ICurveSwap5.sol";
 import "./interfaces/IRewardsGauge.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/math/MathUpgradeable.sol";
 
 /**
+ * TODO tess3rac7 update comment
  * @dev Deposit TOMB-MAI LP in TShareRewardsPool. Harvest TSHARE rewards and recompound.
  */
 contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
@@ -21,10 +21,12 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
 
     // 3rd-party contract addresses
     address public constant SPOOKY_ROUTER = address(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
+    // TODO tess3rac7 strategy variables move below with poolSize etc.
     address public rewardsGauge;
     address public swapPool;
 
     /**
+     * TODO tess3rac7 update comments
      * @dev Tokens Used:
      * {WFTM} - Required for liquidity routing when doing swaps.
      * {TSHARE} - Reward token for depositing LP into TShareRewardsPool.
@@ -39,6 +41,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     address public want;
 
     /**
+     * TODO tess3rac7 update comments
      * @dev Paths used to swap tokens:
      * {tshareToWftmPath} - to swap {TSHARE} to {WFTM} (using SPOOKY_ROUTER)
      * {wftmToTombPath} - to swap {WFTM} to {lpToken0} (using SPOOKY_ROUTER)
@@ -47,8 +50,11 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     address[] public crvToWftmPath;
     address[] public geistToWftmPath;
     address[] public wftmToDepositPath;
+    // is it worth the added complexity trying to make this a generic strategy if the paths are
+    // so specific?
 
     /**
+     * TODO tess3rac7 update comments
      * @dev Tomb variables
      * {poolId} - ID of pool in which to deposit LP tokens
      */
@@ -70,6 +76,15 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         uint256 _poolSize,
         uint256 _depositIndex,
         bool _useUnderlying
+
+        // Look at the curve registry here: 0x0f854EA9F38ceA4B1c2FC79047E9D0134419D5d6
+        // https://curve.readthedocs.io/registry-registry.html#finding-pools
+        // we only need pool address and deposit index. we can get the rest:
+        // - lp token (want)
+        // - num coins (poolSize)
+        //
+        // I'm trying to look for a way to also get the gauge using their registry or some
+        // other contract but no luck so far.
     ) public initializer {
         __ReaperBaseStrategy_init(_vault, _feeRemitters, _strategists);
         want = _want;
@@ -79,7 +94,15 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         depositIndex = _depositIndex;
         useUnderlying = _useUnderlying;
 
+        // should probably add a setter to update this one to a different index + update path
         depositToken = ICurveSwap(swapPool).coins(depositIndex);
+        // this will give you the coins like gDAI, gUSDC etc.
+        // for lending-style pools you want to use a separate function
+        // https://curve.readthedocs.io/exchange-pools.html#id7
+        //
+        // once you fix this, you also need to decide which version to use depending
+        // on the value of useUnderlying. again worth thinking about whether the added complexity
+        // is worth it for attempting to make a generic solution.
 
         crvToWftmPath = [CRV, WFTM];
         geistToWftmPath = [GEIST, WFTM];
@@ -104,7 +127,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
         if (wantBalance < _amount) {
             IRewardsGauge(rewardsGauge).withdraw(_amount - wantBalance);
-            wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
         }
 
         IERC20Upgradeable(want).safeTransfer(vault, _amount);
@@ -128,6 +150,8 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
 
     function _claimRewards() internal {
         IRewardsGauge(rewardsGauge).claim_rewards(address(this));
+        // The geist curve pool also has a claim_rewards function what about that?
+        // https://ftmscan.com/address/0x0fa949783947bf6c1b171db13aeacbb488845b3f#code
     }
 
     /**
@@ -217,6 +241,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     }
 
     // it calculates how much 'want' this contract holds.
+    // could probably inline this it's only used in one spot
     function balanceOfWant() public view returns (uint256) {
         return IERC20Upgradeable(want).balanceOf(address(this));
     }
@@ -231,6 +256,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      *      Profit is denominated in WFTM, and takes fees into account.
      */
     function estimateHarvest() external view override returns (uint256 profit, uint256 callFeeToUser) {
+        // The geist curve pool also has a claim_rewards function what about that?
         uint256 pendingCRVReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), CRV);
         uint256 totalCRVRewards = pendingCRVReward + IERC20Upgradeable(CRV).balanceOf(address(this));
         uint256 pendingGeistReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), GEIST);
@@ -260,7 +286,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * Note: this is not an emergency withdraw function. For that, see panic().
      */
     function _retireStrat() internal override {
-        _harvestCore();
+        _harvestCore(); // call individual functions otherwise fee will be charged here
         IRewardsGauge(rewardsGauge).withdraw(balanceOfPool());
         uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
         IERC20Upgradeable(want).transfer(vault, wantBalance);
@@ -275,6 +301,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     }
 
     /**
+     * TODO tess3rac7 update comments
      * @dev Gives all the necessary allowances to:
      *      - deposit {want} into {TSHARE_REWARDS_POOL}
      *      - swap {TSHARE} using {SPOOKY_ROUTER}
