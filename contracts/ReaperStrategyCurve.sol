@@ -4,35 +4,31 @@ pragma solidity ^0.8.0;
 
 import "./abstract/ReaperBaseStrategyv1_1.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/ICurveRegistry.sol";
 import "./interfaces/ICurveSwap.sol";
-import "./interfaces/ICurveSwap2.sol";
 import "./interfaces/ICurveSwap3.sol";
-import "./interfaces/ICurveSwap4.sol";
-import "./interfaces/ICurveSwap5.sol";
 import "./interfaces/IRewardsGauge.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
 /**
- * TODO tess3rac7 update comment
- * @dev Deposit TOMB-MAI LP in TShareRewardsPool. Harvest TSHARE rewards and recompound.
+ * @dev Deposit a Curve LP token into the Curve rewardGauge to farm WFTM, CRV, GEIST
  */
 contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     // 3rd-party contract addresses
     address public constant SPOOKY_ROUTER = address(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
-    // TODO tess3rac7 strategy variables move below with poolSize etc.
+    address public constant CURVE_REGISTRY = address(0x0f854EA9F38ceA4B1c2FC79047E9D0134419D5d6);
     address public rewardsGauge;
     address public swapPool;
 
     /**
-     * TODO tess3rac7 update comments
      * @dev Tokens Used:
-     * {WFTM} - Required for liquidity routing when doing swaps.
-     * {TSHARE} - Reward token for depositing LP into TShareRewardsPool.
-     * {want} - Address of TOMB-MAI LP token. (lowercase name for FE compatibility)
-     * {lpToken0} - TOMB (name for FE compatibility)
-     * {lpToken1} - MAI (name for FE compatibility)
+     * {WFTM} - Required for liquidity routing when doing swaps. Also reward token.
+     * {CRV} - Reward token.
+     * {GEIST} - Reward token.
+     * {depositToken} - Token that is part of the want LP and can be used to deposit and create the LP
+     * {want} - The Curve LP token (like tricrypto)
      */
     address public constant WFTM = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
     address public constant CRV = address(0x1E4F97b9f9F913c46F1632781732927B9019C68b);
@@ -41,26 +37,22 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     address public want;
 
     /**
-     * TODO tess3rac7 update comments
      * @dev Paths used to swap tokens:
-     * {tshareToWftmPath} - to swap {TSHARE} to {WFTM} (using SPOOKY_ROUTER)
-     * {wftmToTombPath} - to swap {WFTM} to {lpToken0} (using SPOOKY_ROUTER)
-     * {tombToMaiPath} - to swap half of {lpToken0} to {lpToken1} (using TOMB_ROUTER)
+     * {crvToWftmPath} - to swap {CRV} to {WFTM} (using SPOOKY_ROUTER)
+     * {geistToWftmPath} - to swap {GEIST} to {WFTM} (using SPOOKY_ROUTER)
+     * {wftmToDepositPath} - to swap half of {WFTM} to {depositToken} (using SPOOKY_ROUTER)
      */
     address[] public crvToWftmPath;
     address[] public geistToWftmPath;
     address[] public wftmToDepositPath;
-    // is it worth the added complexity trying to make this a generic strategy if the paths are
-    // so specific?
 
     /**
-     * TODO tess3rac7 update comments
-     * @dev Tomb variables
-     * {poolId} - ID of pool in which to deposit LP tokens
+     * @dev Curve variables
+     * {poolSize} - The amount of tokens in the want LP (2-5)
+     * {depositIndex} - The index of the token in the want LP used to deposit and create the LP
      */
     uint256 public poolSize;
     uint256 public depositIndex;
-    bool public useUnderlying;
 
     /**
      * @dev Initializes the strategy. Sets parameters and saves routes.
@@ -70,40 +62,19 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         address _vault,
         address[] memory _feeRemitters,
         address[] memory _strategists,
-        address _want,
-        address _gauge,
         address _pool,
-        uint256 _poolSize,
-        uint256 _depositIndex,
-        bool _useUnderlying
-
-        // Look at the curve registry here: 0x0f854EA9F38ceA4B1c2FC79047E9D0134419D5d6
-        // https://curve.readthedocs.io/registry-registry.html#finding-pools
-        // we only need pool address and deposit index. we can get the rest:
-        // - lp token (want)
-        // - num coins (poolSize)
-        //
-        // I'm trying to look for a way to also get the gauge using their registry or some
-        // other contract but no luck so far.
+        address _gauge,
+        uint256 _depositIndex
     ) public initializer {
         __ReaperBaseStrategy_init(_vault, _feeRemitters, _strategists);
-        want = _want;
-        rewardsGauge = _gauge;
         swapPool = _pool;
-        poolSize = _poolSize;
+        rewardsGauge = _gauge;
         depositIndex = _depositIndex;
-        useUnderlying = _useUnderlying;
 
-        // should probably add a setter to update this one to a different index + update path
+        want = ICurveRegistry(CURVE_REGISTRY).get_lp_token(swapPool);
+        uint256[2] memory coinInfo = ICurveRegistry(CURVE_REGISTRY).get_n_coins(swapPool);
+        poolSize = coinInfo[0];
         depositToken = ICurveSwap(swapPool).coins(depositIndex);
-        // this will give you the coins like gDAI, gUSDC etc.
-        // for lending-style pools you want to use a separate function
-        // https://curve.readthedocs.io/exchange-pools.html#id7
-        //
-        // once you fix this, you also need to decide which version to use depending
-        // on the value of useUnderlying. again worth thinking about whether the added complexity
-        // is worth it for attempting to make a generic solution.
-
         crvToWftmPath = [CRV, WFTM];
         geistToWftmPath = [GEIST, WFTM];
         wftmToDepositPath = [WFTM, depositToken];
@@ -150,12 +121,10 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
 
     function _claimRewards() internal {
         IRewardsGauge(rewardsGauge).claim_rewards(address(this));
-        // The geist curve pool also has a claim_rewards function what about that?
-        // https://ftmscan.com/address/0x0fa949783947bf6c1b171db13aeacbb488845b3f#code
     }
 
     /**
-     * @dev Helper function to swap tokens given an {_amount}, swap {_path}, and {_router}.
+     * @dev Helper function to swap tokens given an {_amount} and {_path},
      */
     function _swap(
         uint256 _amount,
@@ -201,7 +170,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     }
 
     /**
-     * @dev Core harvest function. Adds more liquidity using {lpToken0} and {lpToken1}.
+     * @dev Core harvest function. Adds more liquidity using {depositToken}
      */
     function _addLiquidity() internal {
         uint256 wftmBal = IERC20Upgradeable(WFTM).balanceOf(address(this));
@@ -209,27 +178,9 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
 
         uint256 depositBalance = IERC20Upgradeable(depositToken).balanceOf(address(this));
 
-        if (poolSize == 2) {
-            uint256[2] memory amounts;
-            amounts[depositIndex] = depositBalance;
-            if (useUnderlying)
-                ICurveSwap2(swapPool).add_liquidity(amounts, 0, true);
-            else ICurveSwap2(swapPool).add_liquidity(amounts, 0);
-        } else if (poolSize == 3) {
-            uint256[3] memory amounts;
-            amounts[depositIndex] = depositBalance;
-            if (useUnderlying)
-                ICurveSwap3(swapPool).add_liquidity(amounts, 0, true);
-            else ICurveSwap3(swapPool).add_liquidity(amounts, 0);
-        } else if (poolSize == 4) {
-            uint256[4] memory amounts;
-            amounts[depositIndex] = depositBalance;
-            ICurveSwap4(swapPool).add_liquidity(amounts, 0);
-        } else if (poolSize == 5) {
-            uint256[5] memory amounts;
-            amounts[depositIndex] = depositBalance;
-            ICurveSwap5(swapPool).add_liquidity(amounts, 0);
-        }
+        uint256[3] memory amounts;
+        amounts[depositIndex] = depositBalance;
+        ICurveSwap3(swapPool).add_liquidity(amounts, 0);
     }
 
     /**
@@ -286,7 +237,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * Note: this is not an emergency withdraw function. For that, see panic().
      */
     function _retireStrat() internal override {
-        _harvestCore(); // call individual functions otherwise fee will be charged here
+        _harvestCore();
         IRewardsGauge(rewardsGauge).withdraw(balanceOfPool());
         uint256 wantBalance = IERC20Upgradeable(want).balanceOf(address(this));
         IERC20Upgradeable(want).transfer(vault, wantBalance);
@@ -301,13 +252,12 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     }
 
     /**
-     * TODO tess3rac7 update comments
      * @dev Gives all the necessary allowances to:
-     *      - deposit {want} into {TSHARE_REWARDS_POOL}
-     *      - swap {TSHARE} using {SPOOKY_ROUTER}
+     *      - deposit {want} into {rewardsGauge}
+     *      - swap {CRV} using {SPOOKY_ROUTER}
+     *      - swap {GEIST} using {SPOOKY_ROUTER}
      *      - swap {WFTM} using {SPOOKY_ROUTER}
-     *      - swap {lpToken0} using {TOMB_ROUTER}
-     *      - add liquidity using {lpToken0} and {lpToken1} in {TOMB_ROUTER}
+     *      - add liquidity using {depositToken} in {swapPool}
      */
     function _giveAllowances() internal override {
         // want -> rewardsGauge
