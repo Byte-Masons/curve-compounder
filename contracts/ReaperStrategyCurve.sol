@@ -232,14 +232,15 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * @notice Admin function to update depositToken-related variables. Public instead of internal
      *         since we also call this during initialization.
      */
-    function setDepositTokenParams(uint256 _newDepositIndex, address[] memory _newDepositToWftmPath) public {
+    function setDepositTokenParams(uint256 _newDepositIndex, address[] memory _newWftmToDepositPath) public {
         _onlyStrategistOrOwner();
-
+        require(WFTM == _newWftmToDepositPath[0], "Incorrect path");
         uint256 numTokens = ICurveRegistry(CURVE_REGISTRY).get_n_coins(swapPool)[0];
         require(_newDepositIndex < numTokens, "out of bounds!");
         depositIndex = _newDepositIndex;
         depositToken = ICurveSwap(swapPool).underlying_coins(_newDepositIndex);
-        wftmToDepositPath = _newDepositToWftmPath;
+        require(depositToken == _newWftmToDepositPath[_newWftmToDepositPath.length - 1], "Incorrect path");
+        wftmToDepositPath = _newWftmToDepositPath;
 
         uint256 depositTokenAllowance = type(uint256).max -
             IERC20Upgradeable(depositToken).allowance(address(this), swapPool);
@@ -288,6 +289,9 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         // WFTM -> SPOOKY_ROUTER
         uint256 wftmAllowance = type(uint256).max - IERC20Upgradeable(WFTM).allowance(address(this), SPOOKY_ROUTER);
         IERC20Upgradeable(WFTM).safeIncreaseAllowance(SPOOKY_ROUTER, wftmAllowance);
+        // depositToken -> swapPool
+        uint256 depositAllowance = type(uint256).max - IERC20Upgradeable(depositToken).allowance(address(this), swapPool);
+        IERC20Upgradeable(depositToken).safeIncreaseAllowance(swapPool, depositAllowance);
     }
 
     /**
