@@ -26,24 +26,20 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * @dev Tokens Used:
      * {WFTM} - Required for liquidity routing when doing swaps. Also reward token.
      * {CRV} - Reward token.
-     * {GEIST} - Reward token.
      * {want} - The Curve LP token (like tricrypto)
      * {depositToken} - Token that is part of the want LP and can be used to deposit and create the LP
      */
     address public constant WFTM = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
     address public constant CRV = address(0x1E4F97b9f9F913c46F1632781732927B9019C68b);
-    address public constant GEIST = address(0xd8321AA83Fb0a4ECd6348D4577431310A6E0814d);
     address public want;
     address public depositToken;
 
     /**
      * @dev Paths used to swap tokens:
      * {crvToWftmPath} - to swap {CRV} to {WFTM} (using SPOOKY_ROUTER)
-     * {geistToWftmPath} - to swap {GEIST} to {WFTM} (using SPOOKY_ROUTER)
      * {wftmToDepositPath} - to swap {WFTM} to {depositToken} (using SPOOKY_ROUTER)
      */
     address[] public crvToWftmPath;
-    address[] public geistToWftmPath;
     address[] public wftmToDepositPath;
 
     /**
@@ -71,7 +67,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         want = ICurveRegistry(CURVE_REGISTRY).get_lp_token(swapPool);
         setDepositTokenParams(_depositIndex, _wftmToDepositPath);
         crvToWftmPath = [CRV, WFTM];
-        geistToWftmPath = [GEIST, WFTM];
         _giveAllowances();
     }
 
@@ -126,9 +121,7 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      */
     function _swapRewards() internal {
         uint256 crvBal = IERC20Upgradeable(CRV).balanceOf(address(this));
-        uint256 geistBal = IERC20Upgradeable(GEIST).balanceOf(address(this));
         _swap(crvBal, crvToWftmPath);
-        _swap(geistBal, geistToWftmPath);
     }
 
     /**
@@ -209,16 +202,11 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
     function estimateHarvest() external view override returns (uint256 profit, uint256 callFeeToUser) {
         uint256 pendingCRVReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), CRV);
         uint256 totalCRVRewards = pendingCRVReward + IERC20Upgradeable(CRV).balanceOf(address(this));
-        uint256 pendingGeistReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), GEIST);
-        uint256 totalGeistRewards = pendingGeistReward + IERC20Upgradeable(GEIST).balanceOf(address(this));
         uint256 pendingWFTMReward = IRewardsGauge(rewardsGauge).claimable_reward(address(this), WFTM);
         uint256 totalWFTMRewards = pendingWFTMReward + IERC20Upgradeable(WFTM).balanceOf(address(this));
 
         if (totalCRVRewards != 0) {
             profit += IUniswapV2Router02(SPOOKY_ROUTER).getAmountsOut(totalCRVRewards, crvToWftmPath)[1];
-        }
-        if (totalGeistRewards != 0) {
-            profit += IUniswapV2Router02(SPOOKY_ROUTER).getAmountsOut(totalGeistRewards, geistToWftmPath)[1];
         }
 
         profit += totalWFTMRewards;
@@ -273,7 +261,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
      * @dev Gives all the necessary allowances to:
      *      - deposit {want} into {rewardsGauge}
      *      - swap {CRV} using {SPOOKY_ROUTER}
-     *      - swap {GEIST} using {SPOOKY_ROUTER}
      *      - swap {WFTM} using {SPOOKY_ROUTER}
      */
     function _giveAllowances() internal override {
@@ -283,9 +270,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         // CRV -> SPOOKY_ROUTER
         uint256 crvAllowance = type(uint256).max - IERC20Upgradeable(CRV).allowance(address(this), SPOOKY_ROUTER);
         IERC20Upgradeable(CRV).safeIncreaseAllowance(SPOOKY_ROUTER, crvAllowance);
-        // GEIST -> SPOOKY_ROUTER
-        uint256 geistAllowance = type(uint256).max - IERC20Upgradeable(GEIST).allowance(address(this), SPOOKY_ROUTER);
-        IERC20Upgradeable(GEIST).safeIncreaseAllowance(SPOOKY_ROUTER, geistAllowance);
         // WFTM -> SPOOKY_ROUTER
         uint256 wftmAllowance = type(uint256).max - IERC20Upgradeable(WFTM).allowance(address(this), SPOOKY_ROUTER);
         IERC20Upgradeable(WFTM).safeIncreaseAllowance(SPOOKY_ROUTER, wftmAllowance);
@@ -305,10 +289,6 @@ contract ReaperStrategyCurve is ReaperBaseStrategyv1_1 {
         IERC20Upgradeable(CRV).safeDecreaseAllowance(
             SPOOKY_ROUTER,
             IERC20Upgradeable(CRV).allowance(address(this), SPOOKY_ROUTER)
-        );
-        IERC20Upgradeable(GEIST).safeDecreaseAllowance(
-            SPOOKY_ROUTER,
-            IERC20Upgradeable(GEIST).allowance(address(this), SPOOKY_ROUTER)
         );
         IERC20Upgradeable(WFTM).safeDecreaseAllowance(
             SPOOKY_ROUTER,
