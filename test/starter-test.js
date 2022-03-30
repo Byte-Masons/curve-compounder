@@ -36,9 +36,9 @@ describe('Vaults', function () {
 
   const treasuryAddr = '0x0e7c5313E9BB80b654734d9b7aB1FB01468deE3b';
   const paymentSplitterAddress = '0x63cbd4134c2253041F370472c130e92daE4Ff174';
-  const wantAddress = '0xD02a30d33153877BC20e5721ee53DeDEE0422B2F';
+  const wantAddress = '0x58e57cA18B7A47112b877E31929798Cd3D703b0f';
 
-  const wantHolderAddr = '0xd1fb7f3b6516e66d1ceb20bb350eaad278d13045';
+  const wantHolderAddr = '0x366eb31f550ee1aef8b51a19ba192217f56c8166';
   const strategistAddr = '0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4';
 
   let owner;
@@ -53,7 +53,7 @@ describe('Vaults', function () {
         {
           forking: {
             jsonRpcUrl: 'https://rpc.ftm.tools/',
-            blockNumber: 34010428,
+            blockNumber: 34792090,
           },
         },
       ],
@@ -78,25 +78,15 @@ describe('Vaults', function () {
     Want = await ethers.getContractFactory('@openzeppelin/contracts/token/ERC20/ERC20.sol:ERC20');
 
     //deploy contracts
-    vault = await Vault.deploy(wantAddress, 'g3CRV Curve Crypt', 'rf-Curve-g3CRV', 0, ethers.constants.MaxUint256);
-    const curvePool = '0x0fa949783947bf6c1b171db13aeacbb488845b3f';
-    const gauge = '0xd4f94d0aaa640bbb72b5eec2d85f6d114d81a88e';
-    const depositIndex = 1;
+    vault = await Vault.deploy(wantAddress, 'Tricrypto Curve Crypt', 'rf-crv3crypto', 0, ethers.constants.MaxUint256);
+    const depositIndex = 2;
     const wftmToDepositPath = [
       '0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83',
-      '0x04068DA6C83AFCFA0e13ba15A6696662335D5B75',
+      '0x74b23882a30290451A17c44f4F05243b6b58C76d',
     ];
     strategy = await hre.upgrades.deployProxy(
       Strategy,
-      [
-        vault.address,
-        [treasuryAddr, paymentSplitterAddress],
-        [strategistAddr],
-        curvePool,
-        gauge,
-        depositIndex,
-        wftmToDepositPath,
-      ],
+      [vault.address, [treasuryAddr, paymentSplitterAddress], [strategistAddr], depositIndex, wftmToDepositPath],
       {kind: 'uups'},
     );
     await strategy.deployed();
@@ -218,19 +208,18 @@ describe('Vaults', function () {
       await strategy.harvest();
     });
 
-    it('should provide yield', async function () {
-      const timeToSkip = 3600;
-      const initialUserBalance = await want.balanceOf(wantHolderAddr);
-      const depositAmount = initialUserBalance.div(10);
+    xit('should provide yield', async function () {
+      const blocksToSkip = 100;
+      const depositAmount = await want.balanceOf(wantHolderAddr);
 
       await vault.connect(wantHolder).deposit(depositAmount);
       const initialVaultBalance = await vault.balance();
 
-      await strategy.updateHarvestLogCadence(timeToSkip / 2);
+      await strategy.updateHarvestLogCadence(1);
 
       const numHarvests = 5;
       for (let i = 0; i < numHarvests; i++) {
-        await moveTimeForward(timeToSkip);
+        await moveBlocksForward(blocksToSkip);
         await strategy.harvest();
       }
 
@@ -282,7 +271,7 @@ describe('Vaults', function () {
       await expect(strategy.retireStrat()).to.not.be.reverted;
     });
 
-    xit('should be able to estimate harvest', async function () {
+    it('should be able to estimate harvest', async function () {
       const whaleDepositAmount = toWantUnit('1000');
       await vault.connect(wantHolder).deposit(whaleDepositAmount);
       const timeToSkip = 36000;
@@ -291,6 +280,7 @@ describe('Vaults', function () {
       await strategy.harvest();
       await moveTimeForward(timeToSkip);
       await moveBlocksForward(100);
+      await vault.connect(wantHolder).deposit(whaleDepositAmount);
       const [profit, callFeeToUser] = await strategy.estimateHarvest();
       console.log(`profit: ${profit}`);
       const hasProfit = profit.gt(0);
